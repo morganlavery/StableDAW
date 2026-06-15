@@ -25,6 +25,8 @@ export const Shell: React.FC = () => {
   const setDocsOpen = useAppUiStore((state) => state.setDocsOpen);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [shareOpen, setShareOpen] = React.useState(false);
+  const isDjWorkspace = centerTab === 'dj';
+  const showRightRail = isRightPanelOpen && !isDjWorkspace;
   const [shareUrlOverride, setShareUrlOverride] = React.useState(() => {
     if (typeof window === 'undefined') return '';
     return window.localStorage.getItem('stabledaw.shareUrlOverride') ?? '';
@@ -138,8 +140,9 @@ export const Shell: React.FC = () => {
         <CenterTabBar
           activeTab={centerTab}
           onTabChange={setCenterTab}
-          isRightPanelOpen={isRightPanelOpen}
+          isRightPanelOpen={showRightRail}
           onToggleRightPanel={() => setIsRightPanelOpen(!isRightPanelOpen)}
+          hideRightPanelToggle={isDjWorkspace}
           embedded
         />
 
@@ -177,7 +180,7 @@ export const Shell: React.FC = () => {
           ProcessingLog is NOT inside this rail (it's the global
           bottom strip below) — user explicitly flagged that the log
           must stay anchored regardless of library state. */}
-      {isRightPanelOpen && (
+      {showRightRail && (
         <aside
           className="h-full min-h-0 shrink-0 flex flex-col bg-[#0a080f] border-l border-purple-500/20 shadow-[inset_1px_0_0_rgba(168,85,247,0.08)] z-20 relative"
           style={{
@@ -210,7 +213,7 @@ export const Shell: React.FC = () => {
           collapse toggle + resize handle (multiHeight / logHeight in
           bottomPanelStore) — expanding or resizing one does NOT
           affect the other. */}
-      <ShellBottomDock />
+      {!isDjWorkspace && <ShellBottomDock />}
       <DocsModal open={docsOpen} onClose={() => setDocsOpen(false)} />
       {shareOpen && (
         <div className="fixed inset-0 z-60 flex items-center justify-center">
@@ -315,6 +318,7 @@ const LOG_MIN_WIDTH = 220;
 const LOG_MAX_WIDTH = 720;
 
 const ShellBottomDock: React.FC = () => {
+  const centerTab = useAppUiStore((s) => s.centerTab);
   const multiHeight = useBottomPanelStore((s) => s.multiHeight);
   const setMultiHeight = useBottomPanelStore((s) => s.setMultiHeight);
   const logWidth = useBottomPanelStore((s) => s.logWidth);
@@ -325,6 +329,8 @@ const ShellBottomDock: React.FC = () => {
   const isLogOpen = useBottomPanelStore((s) => s.isLogOpen);
   const setLogOpen = useBottomPanelStore((s) => s.setLogOpen);
   const multiMaximized = useBottomPanelStore((s) => s.multiMaximized);
+
+  if (centerTab === 'dj') return null;
 
   const showBodyRow = isBottomOpen || isLogOpen;
   // ONE shared dock-body height — the LOG can never grow taller than the dock
@@ -649,7 +655,5 @@ const TopBarButton: React.FC<TopBarButtonProps> = ({
     </button>
   );
 };
-
-
 
 

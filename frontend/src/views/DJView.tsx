@@ -25,12 +25,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Disc, Play, Pause, Plus, Save, Trash2, Cast, Music2,
   ChevronDown, ChevronRight, Magnet, Gauge, Lock,
-  KeyRound, Pencil, Search, Library as LibraryIcon, ListMusic, Layers, Sparkles, Download, Link2, Loader2, Shield, Headphones, Piano, X,
+  KeyRound, Pencil, Search, Library as LibraryIcon, ListMusic, Layers, Sparkles, Download, Link2, Loader2, Shield, Headphones, Piano, X, Scissors,
 } from 'lucide-react';
 import { subscribeToMidi } from '../state/midiBus';
 import { useDjControlMap, sigLabel, type MidiKind } from '../state/djControlMap';
 import { useDjSampler } from '../state/djSamplerStore';
 import { useDjSideList } from '../state/djSideListStore';
+import { useFeatureToggleStore } from '../state/featureToggleStore';
 import { ControlSurface } from '../components/surface/ControlSurface';
 import { DJ_TARGETS } from '../state/bindableTargets';
 import type { WidgetRegistry } from '../components/surface/widgetTypes';
@@ -215,7 +216,7 @@ type DeckCtl = ReturnType<typeof useDeck>;
  * panels (hero waveforms, sampler, FX racks, Next lane, source tree, library)
  * host a whole component; every mixer + deck control is an individual widget the
  * user can relocate in Design Mode. Nothing moves until the user drags. */
-const DJ_LAYOUT_VERSION = 6;
+const DJ_LAYOUT_VERSION = 7;
 
 const defaultDjLayout: SurfaceLayout = {
   version: DJ_LAYOUT_VERSION,
@@ -247,13 +248,13 @@ const defaultDjLayout: SurfaceLayout = {
     // ── Mixer ──
     mixer: { id: 'mixer', type: 'container', axis: 'column', children: ['mixToggles', 'mixChans', 'mixXfade'], fr: { mixToggles: 1, mixChans: 6, mixXfade: 1.6 }, framed: true },
     mixToggles: { id: 'mixToggles', type: 'panel', title: 'Modes', flow: 'row', widgets: ['spacer:s-24-02c5d864', 'qtz', 'autoGain', 'automix', 'lim', 'midiMap', 'spacer:s-23-936b468e'], uniform: true },
-    mixChans: { id: 'mixChans', type: 'container', axis: 'row', children: ['pchAP', 'eqAP', 'chAP', 'chBP', 'eqBP', 'pchBP'], fr: { pchAP: 1.9619631901840493, eqAP: 1.6633325420748168, chAP: 1.5103255906150865, chBP: 1.4272893076328357, eqBP: 1.3476793102143942, pchBP: 1.8894100592788177 } },
-    pchAP: { id: 'pchAP', type: 'panel', title: 'Pitch A', flow: 'column', widgets: ['pitchA'], widgetMargins: { pitchA: { t: 8, r: 8, b: 0, l: 64 } }, mirror: true },
+    mixChans: { id: 'mixChans', type: 'container', axis: 'row', children: ['eqAP', 'chAP', 'chBP', 'eqBP'], fr: { eqAP: 1.35, chAP: 1.15, chBP: 1.15, eqBP: 1.35 } },
+    pchAP: { id: 'pchAP', type: 'panel', title: 'Pitch A', flow: 'column', widgets: ['pitchA'], widgetMargins: { pitchA: { t: 8, r: 4, b: 8, l: 4 } }, mirror: true },
     eqAP: { id: 'eqAP', type: 'panel', title: 'EQ A', flow: 'column', widgets: ['eqA.hi', 'eqA.mid', 'eqA.lo', 'fltA'], mirror: true },
     chAP: { id: 'chAP', type: 'panel', title: 'Ch A', flow: 'column', widgets: ['volA', 'gainA'], widgetFr: { gainA: 1, volA: 3 }, widgetMargins: { volA: { t: 8, r: 0, b: 8, l: 24 } }, mirror: true },
     chBP: { id: 'chBP', type: 'panel', title: 'Ch B', flow: 'column', widgets: ['gainB', 'volB'], widgetFr: { gainB: 1, volB: 3 }, widgetMargins: { volB: { t: 8, r: 24, b: 8, l: 0 } } },
     eqBP: { id: 'eqBP', type: 'panel', title: 'EQ B', flow: 'column', widgets: ['eqB.hi', 'eqB.mid', 'eqB.lo', 'fltB'] },
-    pchBP: { id: 'pchBP', type: 'panel', title: 'Pitch B', flow: 'column', widgets: ['pitchB'], widgetMargins: { pitchB: { t: 8, r: 64, b: 0, l: 8 } }, uniform: false },
+    pchBP: { id: 'pchBP', type: 'panel', title: 'Pitch B', flow: 'column', widgets: ['pitchB'], widgetMargins: { pitchB: { t: 8, r: 4, b: 8, l: 4 } }, uniform: false },
     mixXfade: { id: 'mixXfade', type: 'panel', title: 'Crossfade', flow: 'row', widgets: ['spacer:s-22-ffca8259', 'crossfader', 'spacer:s-21-cb584c7d'], widgetFr: { 'spacer:s-22-ffca8259': 0.4556701030927834, crossfader: 2.039175257731959, 'spacer:s-21-cb584c7d': 0.5051546391752577 }, widgetMargins: { crossfader: { t: 16, r: 0, b: 0, l: 0 } }, uniform: false },
     // ── FX row + rails ──
     fxrow: { id: 'fxrow', type: 'container', axis: 'row', children: ['fxAP', 'nextP', 'fxBP'], fr: { fxAP: 0.7703206562266971, nextP: 1.9175988068605512, fxBP: 0.812080536912752 } },
@@ -265,7 +266,7 @@ const defaultDjLayout: SurfaceLayout = {
     libraryP: { id: 'libraryP', type: 'panel', title: 'Library', flow: 'row', widgets: [], pinned: 'library', uniform: true },
     // ── Deck B pad-row wrappers (pad row + spacer panel) ──
     'panel-1-eff655d2': { id: 'panel-1-eff655d2', type: 'panel', title: 'Panel', flow: 'row', widgets: ['spacer:s-25-e6518f32'] },
-    'cont-2-a0e79010': { id: 'cont-2-a0e79010', type: 'container', axis: 'row', children: ['pdB-trans', 'pdB-jog', 'panel-1-eff655d2'], fr: { 'pdB-jog': 1.4609863820390143, 'panel-1-eff655d2': 1.05576002944424, 'pdB-trans': 0.48325358851674666 } },
+    'cont-2-a0e79010': { id: 'cont-2-a0e79010', type: 'container', axis: 'row', children: ['pdB-trans', 'pdB-jog', 'pchBP', 'panel-1-eff655d2'], fr: { 'pdB-trans': 0.48, 'pdB-jog': 1.46, pchBP: 0.45, 'panel-1-eff655d2': 0.6 } },
     'panel-3-e0911657': { id: 'panel-3-e0911657', type: 'panel', title: 'Panel', flow: 'row', widgets: ['spacer:s-32-4c52fb39'] },
     'cont-4-4f4c96d2': { id: 'cont-4-4f4c96d2', type: 'container', axis: 'row', children: ['pdB-hc', 'panel-3-e0911657'], fr: { 'pdB-hc': 1, 'panel-3-e0911657': 1 } },
     'panel-5-e8707245': { id: 'panel-5-e8707245', type: 'panel', title: 'Panel', flow: 'row', widgets: ['spacer:s-31-c7e28dbf'] },
@@ -273,7 +274,7 @@ const defaultDjLayout: SurfaceLayout = {
     'panel-8-81228019': { id: 'panel-8-81228019', type: 'panel', title: 'Panel', flow: 'row', widgets: ['spacer:s-30-3282c3a3'] },
     'cont-9-aebcd780': { id: 'cont-9-aebcd780', type: 'container', axis: 'row', children: ['pdB-perf', 'panel-8-81228019'], fr: { 'pdB-perf': 1.5358851674641145, 'panel-8-81228019': 0.46411483253588537 } },
     // ── Deck A pad-row wrappers ──
-    'cont-10-e11250c4': { id: 'cont-10-e11250c4', type: 'container', axis: 'row', children: ['panel-11-95a4a261', 'pdA-jog', 'pdA-trans'], fr: { 'pdA-trans': 0.6151578454149662, 'pdA-jog': 1.7458919844074359, 'panel-11-95a4a261': 1.1682122566915911 } },
+    'cont-10-e11250c4': { id: 'cont-10-e11250c4', type: 'container', axis: 'row', children: ['panel-11-95a4a261', 'pchAP', 'pdA-jog', 'pdA-trans'], fr: { 'panel-11-95a4a261': 0.7, pchAP: 0.45, 'pdA-jog': 1.75, 'pdA-trans': 0.62 } },
     'panel-11-95a4a261': { id: 'panel-11-95a4a261', type: 'panel', title: 'Panel', flow: 'row', widgets: ['spacer:s-26-79f129b0'] },
     'panel-12-8772ebc6': { id: 'panel-12-8772ebc6', type: 'panel', title: 'Panel', flow: 'row', widgets: ['spacer:s-29-e3c2d4fe'] },
     'cont-13-90c67ecb': { id: 'cont-13-90c67ecb', type: 'container', axis: 'row', children: ['panel-12-8772ebc6', 'pdA-hc'], fr: { 'pdA-hc': 1.0814249363867683, 'panel-12-8772ebc6': 0.9185750636132315 } },
@@ -337,7 +338,9 @@ export const DJView: React.FC = () => {
   const setlists = useSetlistStore((s) => s.setlists);
   const activeId = useSetlistStore((s) => s.activeId);
   const appendToSet = useSetlistStore((s) => s.append);
+  const importBundledSetlists = useSetlistStore((s) => s.importBundled);
   const activeSet = activeId ? setlists[activeId] : null;
+  useEffect(() => { void importBundledSetlists(); }, [importBundledSetlists]);
 
   const trackById = (id: string | null): LibraryEntry | null => (id ? entries.find((e) => e.id === id) ?? null : null);
   const deckATitle = trackById(deckATrack)?.title ?? null;
@@ -430,39 +433,48 @@ export const DJView: React.FC = () => {
     setFlash(isVjSetTargetActive() ? `Sent "${track.title}" to VJ` : `Queued "${track.title}" — opens with VJ tab`);
   };
 
-  const syncDeck = (which: djEngine.DeckId) => {
-    const thisCtl = which === 'A' ? ctlA : ctlB;
-    const otherCtl = which === 'A' ? ctlB : ctlA;
-    const otherId: djEngine.DeckId = which === 'A' ? 'B' : 'A';
-    const thisBpm = thisCtl.a?.bpm ?? null;
-    const otherBpm = otherCtl.a?.bpm ?? null;
-    if (!thisBpm || !otherBpm) return;
-    const otherPitch = which === 'A' ? deckBPitch : deckAPitch;
-    const otherEffBpm = otherBpm * (1 + otherPitch / 100);
-    let rate = otherEffBpm / thisBpm;
+  const syncDeck = (which: djEngine.DeckId): djEngine.DeckId | null => {
+    const aStatus = djEngine.getStatus('A');
+    const bStatus = djEngine.getStatus('B');
+    const oneDeckPlaying = aStatus.playing !== bStatus.playing;
+    const follower: djEngine.DeckId = oneDeckPlaying
+      ? (aStatus.playing ? 'B' : 'A')
+      : which;
+    const master: djEngine.DeckId = follower === 'A' ? 'B' : 'A';
+
+    const followerCtl = follower === 'A' ? ctlA : ctlB;
+    const masterCtl = master === 'A' ? ctlA : ctlB;
+    const followerBpm = followerCtl.a?.bpm ?? null;
+    const masterBpm = masterCtl.a?.bpm ?? null;
+    if (!followerBpm || !masterBpm) return null;
+    const masterPitch = master === 'A' ? deckAPitch : deckBPitch;
+    const masterEffBpm = masterBpm * (1 + masterPitch / 100);
+    let rate = masterEffBpm / followerBpm;
     while (rate > Math.SQRT2) rate /= 2;
     while (rate < Math.SQRT1_2) rate *= 2;
     const pct = (rate - 1) * 100;
-    if (which === 'A') setDeckAPitch(pct); else setDeckBPitch(pct);
-    djEngine.setDeckPitch(which, pct);
-    const thisBeats = thisCtl.a?.beats ?? null;
-    const otherBeats = otherCtl.a?.beats ?? null;
-    const otherStatus = djEngine.getStatus(otherId);
-    const thisStatus = djEngine.getStatus(which);
-    if (thisBeats && otherBeats && otherStatus.playing) {
-      const interval = 60 / (thisBpm * rate);
-      let delta = (beatPhase(otherStatus.currentTime, otherBeats) - beatPhase(thisStatus.currentTime, thisBeats)) * interval;
+    if (follower === 'A') setDeckAPitch(pct); else setDeckBPitch(pct);
+    djEngine.setDeckPitch(follower, pct);
+    const followerBeats = followerCtl.a?.beats ?? null;
+    const masterBeats = masterCtl.a?.beats ?? null;
+    const masterStatus = master === 'A' ? aStatus : bStatus;
+    const followerStatus = follower === 'A' ? aStatus : bStatus;
+    if (followerBeats && masterBeats && masterStatus.playing && followerStatus.playing) {
+      const interval = 60 / (followerBpm * rate);
+      let delta = (beatPhase(masterStatus.currentTime, masterBeats) - beatPhase(followerStatus.currentTime, followerBeats)) * interval;
       if (delta > interval / 2) delta -= interval;
       if (delta < -interval / 2) delta += interval;
-      djEngine.seekDeck(which, thisStatus.currentTime + delta);
+      djEngine.seekDeck(follower, followerStatus.currentTime + delta);
     }
-    setFlash(`Synced Deck ${which} → ${otherEffBpm.toFixed(1)} BPM`);
+    setFlash(`BPM Sync: Deck ${follower} follows Deck ${master} at ${masterEffBpm.toFixed(1)} BPM`);
+    return follower;
   };
   const toggleSyncLock = (which: djEngine.DeckId) => {
-    if (syncLock === which) { setSyncLock(null); return; }
-    syncDeck(which);
-    setSyncLock(which);
-    setFlash(`Sync-Lock: Deck ${which} follows Deck ${which === 'A' ? 'B' : 'A'}`);
+    const synced = syncDeck(which);
+    if (!synced) return;
+    if (syncLock === synced) { setSyncLock(null); return; }
+    setSyncLock(synced);
+    setFlash(`Sync-Lock: Deck ${synced} follows Deck ${synced === 'A' ? 'B' : 'A'}`);
   };
 
   const aData = ctlA.a;
@@ -839,8 +851,18 @@ const DeckTimes: React.FC<{ deckId: djEngine.DeckId; mirror?: boolean }> = ({ de
 const DJ_FX: Array<{ key: djEngine.DjFx; label: string }> = [
   { key: 'flanger', label: 'Flng' }, { key: 'reverb', label: 'Verb' }, { key: 'wahwah', label: 'Wah' },
 ];
-const STEM_LABEL: Record<string, string> = { vocals: 'Voc', drums: 'Drm', bass: 'Bass', other: 'Oth', guitar: 'Gtr', piano: 'Pno' };
-const stemLabel = (n: string) => STEM_LABEL[n.toLowerCase()] ?? (n.charAt(0).toUpperCase() + n.slice(1, 4));
+const STEM_COUNT_OPTIONS = [2, 4, 6, 12] as const;
+type StemCount = typeof STEM_COUNT_OPTIONS[number];
+const toStemCount = (n: number | undefined): StemCount =>
+  STEM_COUNT_OPTIONS.includes(n as StemCount) ? (n as StemCount) : 4;
+const STEM_LABEL: Record<string, string> = {
+  vocals: 'Voc', drums: 'Drm', bass: 'Bass', other: 'Oth', guitar: 'Gtr', piano: 'Pno',
+  kick: 'Kick', snare: 'Snr', hihat: 'Hat', hats: 'Hat', cymbals: 'Cym', toms: 'Tom',
+};
+const stemLabel = (n: string) => {
+  const key = n.toLowerCase().replace(/^drums?[_-]/, '');
+  return STEM_LABEL[key] ?? (n.charAt(0).toUpperCase() + n.slice(1, 4));
+};
 
 const DeckRack: React.FC<{ deck: 'A' | 'B'; accent: 'purple' | 'cyan'; entryId: string | null }> = ({ deck, accent, entryId }) => {
   const accentText = accent === 'purple' ? 'text-purple-300' : 'text-cyan-300';
@@ -853,28 +875,44 @@ const DeckRack: React.FC<{ deck: 'A' | 'B'; accent: 'purple' | 'cyan'; entryId: 
   const onFx = (k: djEngine.DjFx, v: number) => { setFx((p) => ({ ...p, [k]: v })); djEngine.setDeckFx(deck, k, v); };
 
   // Live stems (D4): load (separate if needed) cached stems, then per-stem faders.
+  const stemSettings = useFeatureToggleStore((s) => s.settings.stems);
   const [stemNames, setStemNames] = useState<string[]>(() => djEngine.getDeckStemNames(deck));
   const [stemLevels, setStemLevels] = useState<Record<string, number>>({});
+  const [stemCount, setStemCount] = useState<StemCount>(() => toStemCount(stemSettings.default_count));
   const [stemBusy, setStemBusy] = useState(false);
   const [stemMsg, setStemMsg] = useState<string | null>(null);
+  useEffect(() => { setStemCount(toStemCount(stemSettings.default_count)); }, [stemSettings.default_count]);
   // The engine clears stems on track change (loadDeck) — mirror that here.
   useEffect(() => { setStemNames(djEngine.getDeckStemNames(deck)); setStemMsg(null); }, [entryId, deck]);
   const loadStems = async () => {
     if (!entryId || stemBusy) return;
-    setStemBusy(true); setStemMsg('checking…');
+    setStemBusy(true); setStemMsg('checking cached stems');
     try {
-      const refs = await ensureStems(entryId, { stems: 4, quality: 'fast' }, (pct, phase) => setStemMsg(`${phase} ${pct}%`));
+      const device = stemSettings.device || 'auto';
+      const quality = stemSettings.quality || 'balanced';
+      const refs = await ensureStems(
+        entryId,
+        { stems: stemCount, device, quality },
+        (pct, phase) => setStemMsg(`${phase.replace(/_/g, ' ')}${pct > 0 ? ` ${pct}%` : ''}`),
+      );
       if (!refs.length) { setStemMsg('no stems'); return; }
-      setStemMsg('loading…');
+      setStemMsg('loading stems');
       const names = await djEngine.loadDeckStems(deck, refs);
       setStemNames(names);
       setStemLevels(Object.fromEntries(names.map((n) => [n, 1])));
       setStemMsg(null);
     } catch (e) {
-      setStemMsg(e instanceof Error ? e.message.slice(0, 24) : 'failed');
+      setStemMsg(e instanceof Error ? e.message.slice(0, 36) : 'failed');
     } finally { setStemBusy(false); }
   };
+  const abortStems = async () => {
+    if (!entryId || !stemBusy) return;
+    setStemMsg('aborting');
+    try { await fetch(`/api/stems/${encodeURIComponent(entryId)}/abort`, { method: 'POST' }); }
+    catch { /* the running request will surface the final state */ }
+  };
   const onStem = (name: string, v: number) => { setStemLevels((p) => ({ ...p, [name]: v })); djEngine.setStemGain(deck, name, v); };
+  const stemActionLabel = stemBusy ? 'Running' : stemNames.length >= stemCount ? 'Reload' : 'Separate';
 
   return (
     <div className="hardware-card flex flex-col min-h-0 overflow-hidden">
@@ -890,28 +928,56 @@ const DeckRack: React.FC<{ deck: 'A' | 'B'; accent: 'purple' | 'cyan'; entryId: 
           ))}
         </div>
         {/* Live stems (D4) — per-stem gain faders, or a load/separate button */}
-        <div className="mt-auto w-fit">
-          <div className={`flex items-center gap-1 mb-1 ${toCenter ? 'flex-row-reverse' : ''}`}>
+        <div className="mt-auto w-full min-h-0">
+          <div className={`flex flex-wrap items-center gap-1 mb-1 min-w-0 ${toCenter ? 'flex-row-reverse' : ''}`}>
             <span className="text-[7px] font-black uppercase tracking-widest text-zinc-500">Stems</span>
-            {stemNames.length === 0 ? (
-              <button onClick={() => void loadStems()} disabled={!entryId || stemBusy}
-                className="ml-auto text-[7px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-zinc-100 hover:border-white/20 disabled:opacity-30 disabled:pointer-events-none"
-                title={entryId ? 'Separate this track into stems (cached if already done) → 4 live faders' : 'Load a track first'}>
-                {stemBusy ? (stemMsg ?? 'working…') : 'Load'}
-              </button>
-            ) : stemMsg ? (
-              <span className="ml-auto text-[7px] font-mono text-rose-300 truncate" title={stemMsg}>{stemMsg}</span>
-            ) : null}
-          </div>
-          {stemNames.length > 0 ? (
-            <div className="grid gap-1 place-items-center" style={{ gridTemplateColumns: `repeat(${Math.min(stemNames.length, 4)}, minmax(0,1fr))` }}>
-              {stemNames.slice(0, 4).map((name) => (
-                <SlideKnob key={name} label={stemLabel(name)} value={stemLevels[name] ?? 1} onChange={(v) => onStem(name, v)} min={0} max={1} step={0.01} size={28} centerReadout />
+            <div className={`flex items-center gap-0.5 ${toCenter ? 'flex-row-reverse' : ''}`}>
+              {STEM_COUNT_OPTIONS.map((count) => (
+                <button
+                  key={count}
+                  onClick={() => setStemCount(count)}
+                  disabled={stemBusy}
+                  className={`h-5 min-w-5 rounded border px-1 text-[7px] font-black tabular-nums leading-none ${
+                    stemCount === count
+                      ? `${accentText} border-current bg-white/10`
+                      : 'border-white/10 text-zinc-500 hover:text-zinc-200 hover:border-white/25'
+                  } disabled:opacity-40`}
+                  title={`${count} stem separation`}
+                >
+                  {count}
+                </button>
               ))}
             </div>
-          ) : (
-            stemBusy && <div className="text-[8px] font-mono text-zinc-600 truncate" title={stemMsg ?? ''}>{stemMsg ?? 'working…'}</div>
+            <button onClick={() => void loadStems()} disabled={!entryId || stemBusy}
+              className="text-[7px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-white/10 text-zinc-400 hover:text-zinc-100 hover:border-white/20 disabled:opacity-30 disabled:pointer-events-none flex items-center gap-1"
+              title={entryId ? `Separate or load cached ${stemCount}-stem split using ${stemSettings.device || 'auto'} / ${stemSettings.quality || 'balanced'}` : 'Load a track first'}>
+              <Scissors className="w-2.5 h-2.5" />
+              {stemActionLabel}
+            </button>
+            {stemBusy ? (
+              <button
+                onClick={() => void abortStems()}
+                className="h-5 w-5 grid place-items-center rounded border border-rose-400/30 text-rose-300 hover:bg-rose-500/15"
+                title="Abort stem separation"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            ) : null}
+          </div>
+          {stemMsg && (
+            <div className={`mb-1 text-[8px] font-mono truncate ${stemBusy ? 'text-zinc-500' : 'text-rose-300'} ${toCenter ? 'text-right' : ''}`} title={stemMsg}>
+              {stemMsg}
+            </div>
           )}
+          {stemNames.length > 0 ? (
+            <div className="max-h-[88px] min-h-0 overflow-y-auto pr-0.5">
+              <div className="grid gap-1 place-items-center" style={{ gridTemplateColumns: `repeat(${Math.min(stemNames.length, 4)}, minmax(0,1fr))` }}>
+                {stemNames.map((name) => (
+                  <SlideKnob key={name} label={stemLabel(name)} value={stemLevels[name] ?? 1} onChange={(v) => onStem(name, v)} min={0} max={1} step={0.01} size={28} centerReadout />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1591,7 +1657,7 @@ function buildDjRegistry(p: DjRegArgs): WidgetRegistry {
 
     padW(`cue${d}`, `Cue ${d}`, <SlidePad color={rgbc} disabled={!hasTrack} onClick={onCue} className={PAD_SM} title="Cue to start">Cue</SlidePad>);
     padW(`play${d}`, `Play ${d}`, <SlidePad color={rgbc} disabled={!hasTrack} onClick={onPlay} className="px-3 py-1" title={isPlaying ? 'Pause' : 'Play'}>{isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}</SlidePad>);
-    padW(`sync${d}`, `Sync ${d}`, <SlidePad color={rgbc} disabled={!p.canSync} onClick={() => p.onSync(d)} className={PAD_SM} title={p.canSync ? 'Beatmatch this deck to the other (tempo + phase)' : 'SYNC needs BPM on both decks'}>Sync</SlidePad>);
+    padW(`sync${d}`, `Sync ${d}`, <SlidePad color={rgbc} disabled={!p.canSync} onClick={() => p.onSync(d)} className={PAD_SM} title={p.canSync ? 'BPM Sync — when one deck is playing, match the stopped incoming deck to it' : 'SYNC needs BPM on both decks'}>Sync</SlidePad>);
     padW(`syncLock${d}`, `Sync-Lock ${d}`, <SlidePad color={rgbc} on={syncLocked} disabled={!p.canSync} onClick={() => p.onSyncLock(d)} className="px-1.5 py-1" title="Sync-Lock — hold tempo + phase"><Lock className="w-3 h-3" /></SlidePad>);
     padW(`headCue${d}`, `HP Cue ${d}`, <SlidePad color={[34, 211, 238]} on={headCued} disabled={!hasTrack} onClick={() => p.onHeadCue(d)} className="px-1.5 py-1" title="Cue — pre-listen in the headphone output"><Headphones className="w-3 h-3" /></SlidePad>);
 

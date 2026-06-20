@@ -13,6 +13,7 @@ import { AssistantPanel } from './orb-kit/AssistantPanel';
 import { logInfo, logWarn } from './state/logStore';
 import { handletheDAWAction } from './orb-kit/actionHandlers';
 import { useStatusBarStore } from './state/statusBarStore';
+import { useAppUiStore } from './state/appUiStore';
 import { useLibraryStore } from './state/libraryStore';
 import { triggerPianoNoteFromMidi } from './components/audio/PianoRoll';
 import { publishMidi } from './state/midiBus';
@@ -21,6 +22,46 @@ import { isMidiAudioMuted, useMidiTriggerStore } from './state/midiTriggerStore'
 
 import './orb-kit/styles/gantasmo-orb.css';
 import './orb-kit/chat/orb-chat.css';
+
+interface NativeMidiMessageDetail {
+  data?: number[];
+  input?: string;
+}
+
+interface NativeMidiDevicesDetail {
+  inputs?: string[];
+}
+
+interface NativeMidiStatusDetail {
+  message?: string;
+}
+
+declare global {
+  interface Window {
+    __theDAWNativeMidiAvailable?: boolean;
+    webkit?: {
+      messageHandlers?: {
+        nativeMidi?: {
+          postMessage: (message: unknown) => void;
+        };
+      };
+    };
+  }
+}
+
+function triggerOptionalPianoVoice(data: number[]): void {
+  const [status, data1, data2] = data;
+  if (typeof status !== 'number' || typeof data1 !== 'number' || typeof data2 !== 'number') return;
+  const command = status & 0xf0;
+  if (command === 0x90 && data2 > 0 && !isMidiAudioMuted()) {
+    try {
+      triggerPianoNoteFromMidi(data1, data2);
+    } catch (err) {
+      /* a single failed voice should not silence the whole bus */
+      console.error('[midi] note trigger failed:', err);
+    }
+  }
+}
 
 export default function App() {
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
@@ -33,6 +74,8 @@ export default function App() {
 
   const isBackendReady = useStatusBarStore((s) => s.isBackendReady);
   const refreshHealth  = useStatusBarStore((s) => s.refreshHealth);
+  const centerTab = useAppUiStore((s) => s.centerTab);
+  const isDjWorkspace = centerTab === 'dj';
 
   // Enforce a minimum 7-second loading screen
   useEffect(() => {
@@ -79,6 +122,52 @@ export default function App() {
     logInfo('system', 'theDAW UI initialized');
   }, []);
 
+  // ── Native CoreMIDI bridge (standalone macOS app) ─────────────────────
+  // WKWebView does not expose Web MIDI, so the app wrapper forwards CoreMIDI
+  // packets into the page as CustomEvents. Once here, they use the same global
+  // MIDI bus as browser Web MIDI, so DJ learn/presets/VJ forwarding all work.
+  useEffect(() => {
+    const nativeHandler = window.webkit?.messageHandlers?.nativeMidi;
+    if (!nativeHandler) return;
+
+    window.__theDAWNativeMidiAvailable = true;
+
+    const onDevices = (event: Event) => {
+      const detail = (event as CustomEvent<NativeMidiDevicesDetail>).detail;
+      useMidiDevicesStore.getState().setMidiInputs(Array.isArray(detail?.inputs) ? detail.inputs : []);
+    };
+
+    const onMidi = (event: Event) => {
+      if (!useMidiTriggerStore.getState().enabled) return;
+      const detail = (event as CustomEvent<NativeMidiMessageDetail>).detail;
+      const data = Array.isArray(detail?.data) ? detail.data : null;
+      if (!data || data.length < 2) return;
+      publishMidi(data);
+      triggerOptionalPianoVoice(data);
+    };
+
+    const onStatus = (event: Event) => {
+      const detail = (event as CustomEvent<NativeMidiStatusDetail>).detail;
+      if (detail?.message) logWarn('midi', detail.message);
+    };
+
+    window.addEventListener('thedaw:native-midi-devices', onDevices);
+    window.addEventListener('thedaw:native-midi', onMidi);
+    window.addEventListener('thedaw:native-midi-status', onStatus);
+
+    try {
+      nativeHandler.postMessage({ type: 'ready' });
+    } catch {
+      /* bridge presence is best-effort; packet events are still accepted */
+    }
+
+    return () => {
+      window.removeEventListener('thedaw:native-midi-devices', onDevices);
+      window.removeEventListener('thedaw:native-midi', onMidi);
+      window.removeEventListener('thedaw:native-midi-status', onStatus);
+    };
+  }, []);
+
   // ── Global Web MIDI listener ───────────────────────────────────
   // Any connected MIDI controller's note-on messages trigger the
   // synthesizer voice exposed by PianoRoll (triggerPianoNoteFromMidi).
@@ -91,7 +180,7 @@ export default function App() {
     // we never call requestMIDIAccess(), so Chrome's permission prompt +
     // Web MIDI deprecation notice only appear on explicit opt-in.
     if (!midiEnabled) {
-      useMidiDevicesStore.getState().setMidiInputs([]);
+      if (!window.__theDAWNativeMidiAvailable) useMidiDevicesStore.getState().setMidiInputs([]);
       return;
     }
     if (typeof navigator === 'undefined' || !('requestMIDIAccess' in navigator)) return;
@@ -110,16 +199,7 @@ export default function App() {
       //    user has muted MIDI audio triggering (VJ performers who
       //    want the controller to drive effects only). The bus
       //    publish above still runs, so visual effects keep reacting.
-      const [status, data1, data2] = e.data;
-      const command = status & 0xf0;
-      if (command === 0x90 && data2 > 0 && !isMidiAudioMuted()) {
-        try {
-          triggerPianoNoteFromMidi(data1, data2);
-        } catch (err) {
-          /* a single failed voice should not silence the whole bus */
-          console.error('[midi] note trigger failed:', err);
-        }
-      }
+      triggerOptionalPianoVoice(Array.from(e.data));
     };
 
     const attach = (a: MIDIAccess) => {
@@ -184,22 +264,26 @@ export default function App() {
     <>
       {/* Main app always mounts so state initializes, but polls are gated on isBackendReady */}
       <Shell />
-      <PlayerFooter />
-      <GantasmoOrb
-        isActive={isAssistantOpen}
-        onToggle={() => setIsAssistantOpen(prev => !prev)}
-        onPositionChange={setOrbPosition}
-        // Bottom-left corner, pulled DOWN to overlap the footer (where the
-        // music-note icon used to be). v3 key so it resets there once.
-        defaultPosition={{ x: 12, y: typeof window !== 'undefined' ? window.innerHeight - 92 : 500 }}
-        persistenceKey="thedaw-orb-pos-v3"
-      />
-      <AssistantPanel
-        isOpen={isAssistantOpen}
-        onClose={() => setIsAssistantOpen(false)}
-        onExecuteAction={handleAssistantAction}
-        orbPosition={orbPosition}
-      />
+      {!isDjWorkspace && (
+        <>
+          <PlayerFooter />
+          <GantasmoOrb
+            isActive={isAssistantOpen}
+            onToggle={() => setIsAssistantOpen(prev => !prev)}
+            onPositionChange={setOrbPosition}
+            // Bottom-left corner, pulled DOWN to overlap the footer (where the
+            // music-note icon used to be). v3 key so it resets there once.
+            defaultPosition={{ x: 12, y: typeof window !== 'undefined' ? window.innerHeight - 92 : 500 }}
+            persistenceKey="thedaw-orb-pos-v3"
+          />
+          <AssistantPanel
+            isOpen={isAssistantOpen}
+            onClose={() => setIsAssistantOpen(false)}
+            onExecuteAction={handleAssistantAction}
+            orbPosition={orbPosition}
+          />
+        </>
+      )}
 
       {/* Loading screen overlays everything until backend is ready */}
       <AnimatePresence>
@@ -218,5 +302,3 @@ export default function App() {
     </>
   );
 }
-
-

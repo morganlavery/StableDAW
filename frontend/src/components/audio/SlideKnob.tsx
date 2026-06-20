@@ -39,10 +39,13 @@ interface SlideKnobProps {
   /** Fixed accent colour position 0..1 (a style/skin override). When set, the
    *  dial colour no longer tracks the value — used by custom controls. */
   tint?: number;
+  onLabelDoubleClick?: () => void;
+  labelTitle?: string;
 }
 
 const SlideKnobImpl: React.FC<SlideKnobProps> = ({
   label, value, onChange, min, max, step = 0.01, tipKey, size = 42, centerReadout = false, center = false, tint,
+  onLabelDoubleClick, labelTitle,
 }) => {
   const dragging = useRef(false);
   const lastY = useRef(0);
@@ -107,7 +110,16 @@ const SlideKnobImpl: React.FC<SlideKnobProps> = ({
   };
 
   const labelEl = (
-    <span className="text-[8px] font-bold uppercase tracking-wider text-zinc-400 truncate max-w-full text-center leading-none">
+    <span
+      className={`text-[8px] font-bold uppercase tracking-wider text-zinc-400 truncate max-w-full text-center leading-none ${onLabelDoubleClick ? 'cursor-pointer' : ''}`}
+      title={labelTitle}
+      onDoubleClick={(e) => {
+        if (!onLabelDoubleClick) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onLabelDoubleClick();
+      }}
+    >
       {label}
     </span>
   );
